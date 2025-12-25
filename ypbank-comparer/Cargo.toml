@@ -1,0 +1,8 @@
+[package]
+name = "ypbank-comparer"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ypbank-parser = { path = "../ypbank-parser" }
+

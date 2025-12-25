@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = [
+    "ypbank-parser",
+    "ypbank-converter",
+    "ypbank-comparer",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Leonid Konchulizov"]
+license = "MIT"

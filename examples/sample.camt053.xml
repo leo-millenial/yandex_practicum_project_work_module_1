@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02">
+<BkToCstmrStmt>
+<GrpHdr>
+<MsgId>SAMPLE001</MsgId>
+<CreDtTm>2024-01-01T00:00:00</CreDtTm>
+</GrpHdr>
+<Stmt>
+<Id>STMT001</Id>
+<Acct>
+<Id>
+<IBAN>DK8030000001234567</IBAN>
+</Id>
+<Ccy>DKK</Ccy>
+<Nm>Sample Account</Nm>
+<Ownr>
+<Nm>Sample Owner</Nm>
+</Ownr>
+</Acct>
+<Bal>
+<Tp>
+<CdOrPrtry>
+<Cd>OPBD</Cd>
+</CdOrPrtry>
+</Tp>
+<Amt Ccy="DKK">10000.00</Amt>
+<CdtDbtInd>CRDT</CdtDbtInd>
+<Dt>
+<Dt>2024-01-01</Dt>
+</Dt>
+</Bal>
+<Bal>
+<Tp>
+<CdOrPrtry>
+<Cd>CLBD</Cd>
+</CdOrPrtry>
+</Tp>
+<Amt Ccy="DKK">10591.15</Amt>
+<CdtDbtInd>CRDT</CdtDbtInd>
+<Dt>
+<Dt>2024-01-31</Dt>
+</Dt>
+</Bal>
+<Ntry>
+<NtryRef>1</NtryRef>
+<Amt Ccy="DKK">591.15</Amt>
+<CdtDbtInd>CRDT</CdtDbtInd>
+<Sts>BOOK</Sts>
+<BookgDt>
+<Dt>2024-01-15</Dt>
+</BookgDt>
+<ValDt>
+<Dt>2024-01-15</Dt>
+</ValDt>
+<AcctSvcrRef>REF001</AcctSvcrRef>
+<NtryDtls>
+<TxDtls>
+<Refs>
+<EndToEndId>E2E001</EndToEndId>
+<TxId>TX001</TxId>
+</Refs>
+<AmtDtls>
+<TxAmt>
+<Amt Ccy="DKK">591.15</Amt>
+</TxAmt>
+</AmtDtls>
+<RltdPties>
+<Dbtr>
+<Nm>Sender Company</Nm>
+</Dbtr>
+<DbtrAcct>
+<Id>
+<IBAN>SE5180000810512345678901</IBAN>
+</Id>
+</DbtrAcct>
+</RltdPties>
+<RmtInf>
+<Ustrd>Payment for invoice 12345</Ustrd>
+</RmtInf>
+</TxDtls>
+</NtryDtls>
+</Ntry>
+</Stmt>
+</BkToCstmrStmt>
+</Document>
+
