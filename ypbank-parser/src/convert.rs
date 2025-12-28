@@ -6,8 +6,7 @@ use crate::camt053::parser::{
 use crate::error::Error;
 use crate::mt940::parser::{Mt940Balance, Mt940Statement, Mt940Transaction};
 use crate::types::{
-    BALANCE_TYPE_CLOSING, BALANCE_TYPE_OPENING, CREDIT_INDICATOR, DEBIT_INDICATOR,
-    END_TO_END_NOT_PROVIDED, TRANSACTION_TYPE_TRANSFER,
+    BalanceType, CreditDebit, END_TO_END_NOT_PROVIDED, TRANSACTION_TYPE_TRANSFER,
 };
 
 impl From<Mt940Statement> for Camt053Statement {
@@ -26,26 +25,18 @@ impl From<Mt940Statement> for Camt053Statement {
         };
 
         let opening_balance = Camt053Balance {
-            balance_type: BALANCE_TYPE_OPENING.to_string(),
+            balance_type: BalanceType::Opening,
             amount: mt940.opening_balance.amount,
             currency: currency.clone(),
-            credit_debit_indicator: if mt940.opening_balance.credit_debit == 'C' {
-                CREDIT_INDICATOR.to_string()
-            } else {
-                DEBIT_INDICATOR.to_string()
-            },
+            credit_debit: CreditDebit::from_char(mt940.opening_balance.credit_debit),
             date: mt940.opening_balance.date,
         };
 
         let closing_balance = Camt053Balance {
-            balance_type: BALANCE_TYPE_CLOSING.to_string(),
+            balance_type: BalanceType::Closing,
             amount: mt940.closing_balance.amount,
             currency: mt940.closing_balance.currency,
-            credit_debit_indicator: if mt940.closing_balance.credit_debit == 'C' {
-                CREDIT_INDICATOR.to_string()
-            } else {
-                DEBIT_INDICATOR.to_string()
-            },
+            credit_debit: CreditDebit::from_char(mt940.closing_balance.credit_debit),
             date: mt940.closing_balance.date,
         };
 
@@ -97,11 +88,7 @@ impl From<Mt940Statement> for Camt053Statement {
                     entry_ref: Some(format!("{}", idx + 1)),
                     amount: tx.amount,
                     currency: currency.clone(),
-                    credit_debit_indicator: if tx.credit_debit == 'C' {
-                        CREDIT_INDICATOR.to_string()
-                    } else {
-                        DEBIT_INDICATOR.to_string()
-                    },
+                    credit_debit: CreditDebit::from_char(tx.credit_debit),
                     booking_date: tx.date,
                     value_date: tx.value_date,
                     account_servicer_ref: tx.reference,
@@ -135,19 +122,15 @@ impl TryFrom<Camt053Statement> for Mt940Statement {
 
         for b in camt.balances {
             let balance = Mt940Balance {
-                credit_debit: if b.credit_debit_indicator == CREDIT_INDICATOR {
-                    'C'
-                } else {
-                    'D'
-                },
+                credit_debit: b.credit_debit.as_char(),
                 date: b.date,
                 currency: b.currency,
                 amount: b.amount,
             };
 
-            match b.balance_type.as_str() {
-                BALANCE_TYPE_OPENING => opening_balance_opt = Some(balance),
-                BALANCE_TYPE_CLOSING => closing_balance_opt = Some(balance),
+            match b.balance_type {
+                BalanceType::Opening => opening_balance_opt = Some(balance),
+                BalanceType::Closing => closing_balance_opt = Some(balance),
                 _ => {}
             }
         }
@@ -198,11 +181,7 @@ impl TryFrom<Camt053Statement> for Mt940Statement {
                 Mt940Transaction {
                     date: entry.booking_date,
                     value_date: entry.value_date,
-                    credit_debit: if entry.credit_debit_indicator == CREDIT_INDICATOR {
-                        'C'
-                    } else {
-                        'D'
-                    },
+                    credit_debit: entry.credit_debit.as_char(),
                     amount: entry.amount,
                     transaction_type: TRANSACTION_TYPE_TRANSFER.to_string(),
                     reference,
@@ -261,7 +240,7 @@ mod tests {
         assert_eq!(camt.account.iban, Some("NL81ASNB9999999999".to_string()));
         assert_eq!(camt.balances.len(), 2);
         assert_eq!(camt.entries.len(), 1);
-        assert_eq!(camt.entries[0].credit_debit_indicator, "CRDT");
+        assert_eq!(camt.entries[0].credit_debit, CreditDebit::Credit);
     }
 
     #[test]
@@ -278,17 +257,17 @@ mod tests {
             },
             balances: vec![
                 Camt053Balance {
-                    balance_type: "OPBD".to_string(),
+                    balance_type: BalanceType::Opening,
                     amount: 100000,
                     currency: "DKK".to_string(),
-                    credit_debit_indicator: "CRDT".to_string(),
+                    credit_debit: CreditDebit::Credit,
                     date: Date::new(2024, 1, 1),
                 },
                 Camt053Balance {
-                    balance_type: "CLBD".to_string(),
+                    balance_type: BalanceType::Closing,
                     amount: 150000,
                     currency: "DKK".to_string(),
-                    credit_debit_indicator: "CRDT".to_string(),
+                    credit_debit: CreditDebit::Credit,
                     date: Date::new(2024, 1, 31),
                 },
             ],

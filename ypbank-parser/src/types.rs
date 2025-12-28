@@ -21,6 +21,89 @@ pub const TRANSACTION_TYPE_TRANSFER: &str = "NTRF";
 pub const END_TO_END_NOT_PROVIDED: &str = "NOTPROVIDED";
 
 // =============================================================================
+// Перечисления (enums)
+// =============================================================================
+
+/// Тип баланса в банковской выписке.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BalanceType {
+    /// Начальный баланс (Opening Booked).
+    Opening,
+    /// Конечный баланс (Closing Booked).
+    Closing,
+    /// Другой тип баланса.
+    Other,
+}
+
+impl BalanceType {
+    /// Создает BalanceType из строкового кода CAMT.053.
+    pub fn from_code(code: &str) -> Self {
+        match code {
+            BALANCE_TYPE_OPENING => Self::Opening,
+            BALANCE_TYPE_CLOSING => Self::Closing,
+            _ => Self::Other,
+        }
+    }
+
+    /// Возвращает строковый код CAMT.053.
+    pub fn as_code(&self) -> &'static str {
+        match self {
+            Self::Opening => BALANCE_TYPE_OPENING,
+            Self::Closing => BALANCE_TYPE_CLOSING,
+            Self::Other => "OTHR",
+        }
+    }
+}
+
+/// Индикатор кредит/дебет (направление движения средств).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CreditDebit {
+    /// Кредит (поступление средств).
+    Credit,
+    /// Дебет (списание средств).
+    Debit,
+}
+
+impl CreditDebit {
+    /// Создает CreditDebit из строкового кода CAMT.053.
+    pub fn from_code(code: &str) -> Self {
+        match code {
+            CREDIT_INDICATOR => Self::Credit,
+            _ => Self::Debit,
+        }
+    }
+
+    /// Создает CreditDebit из символа MT940.
+    pub fn from_char(c: char) -> Self {
+        match c {
+            'C' => Self::Credit,
+            _ => Self::Debit,
+        }
+    }
+
+    /// Возвращает строковый код CAMT.053.
+    pub fn as_code(&self) -> &'static str {
+        match self {
+            Self::Credit => CREDIT_INDICATOR,
+            Self::Debit => DEBIT_INDICATOR,
+        }
+    }
+
+    /// Возвращает символ MT940.
+    pub fn as_char(&self) -> char {
+        match self {
+            Self::Credit => 'C',
+            Self::Debit => 'D',
+        }
+    }
+
+    /// Возвращает true если это кредит (поступление).
+    pub fn is_credit(&self) -> bool {
+        matches!(self, Self::Credit)
+    }
+}
+
+// =============================================================================
 // Структуры данных
 // =============================================================================
 

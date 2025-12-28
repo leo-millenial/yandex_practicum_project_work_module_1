@@ -72,7 +72,7 @@ impl Camt053Writer {
         writeln!(writer, "<Bal>")?;
         writeln!(writer, "<Tp>")?;
         writeln!(writer, "<CdOrPrtry>")?;
-        writeln!(writer, "<Cd>{}</Cd>", Self::escape_xml(&balance.balance_type))?;
+        writeln!(writer, "<Cd>{}</Cd>", balance.balance_type.as_code())?;
         writeln!(writer, "</CdOrPrtry>")?;
         writeln!(writer, "</Tp>")?;
 
@@ -86,7 +86,7 @@ impl Camt053Writer {
         writeln!(
             writer,
             "<CdtDbtInd>{}</CdtDbtInd>",
-            Self::escape_xml(&balance.credit_debit_indicator)
+            balance.credit_debit.as_code()
         )?;
 
         writeln!(writer, "<Dt>")?;
@@ -115,7 +115,7 @@ impl Camt053Writer {
         writeln!(
             writer,
             "<CdtDbtInd>{}</CdtDbtInd>",
-            Self::escape_xml(&entry.credit_debit_indicator)
+            entry.credit_debit.as_code()
         )?;
 
         writeln!(writer, "<Sts>BOOK</Sts>")?;
