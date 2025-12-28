@@ -3,8 +3,8 @@
 use crate::camt053::parser::{
     Camt053Account, Camt053Balance, Camt053Entry, Camt053Statement, Camt053TransactionDetails,
 };
+use crate::error::Error;
 use crate::mt940::parser::{Mt940Balance, Mt940Statement, Mt940Transaction};
-use crate::types::Date;
 
 impl From<Mt940Statement> for Camt053Statement {
     fn from(mt940: Mt940Statement) -> Self {
@@ -110,15 +110,15 @@ impl From<Mt940Statement> for Camt053Statement {
     }
 }
 
-impl From<Camt053Statement> for Mt940Statement {
-    fn from(camt: Camt053Statement) -> Self {
+impl TryFrom<Camt053Statement> for Mt940Statement {
+    type Error = Error;
+
+    fn try_from(camt: Camt053Statement) -> Result<Self, Self::Error> {
         let account_id = camt
             .account
             .iban
             .clone()
             .unwrap_or_else(|| "UNKNOWN".to_string());
-
-        let currency = camt.account.currency.clone();
 
         let opening_balance = camt
             .balances
@@ -134,12 +134,9 @@ impl From<Camt053Statement> for Mt940Statement {
                 currency: b.currency.clone(),
                 amount: b.amount,
             })
-            .unwrap_or_else(|| Mt940Balance {
-                credit_debit: 'C',
-                date: Date::new(2024, 1, 1),
-                currency: currency.clone(),
-                amount: 0,
-            });
+            .ok_or_else(|| {
+                Error::MissingField("Отсутствует начальный баланс (OPBD)".to_string())
+            })?;
 
         let closing_balance = camt
             .balances
@@ -155,12 +152,9 @@ impl From<Camt053Statement> for Mt940Statement {
                 currency: b.currency.clone(),
                 amount: b.amount,
             })
-            .unwrap_or_else(|| Mt940Balance {
-                credit_debit: 'C',
-                date: Date::new(2024, 12, 31),
-                currency: currency.clone(),
-                amount: 0,
-            });
+            .ok_or_else(|| {
+                Error::MissingField("Отсутствует конечный баланс (CLBD)".to_string())
+            })?;
 
         let transactions: Vec<Mt940Transaction> = camt
             .entries
@@ -215,20 +209,21 @@ impl From<Camt053Statement> for Mt940Statement {
             })
             .collect();
 
-        Mt940Statement {
+        Ok(Mt940Statement {
             reference: camt.message_id.replace("MT940-", ""),
             account_id,
             statement_number: camt.statement_id,
             opening_balance,
             closing_balance,
             transactions,
-        }
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::Date;
 
     #[test]
     fn test_mt940_to_camt053_conversion() {
@@ -298,10 +293,30 @@ mod tests {
             entries: vec![],
         };
 
-        let mt940: Mt940Statement = camt.into();
+        let mt940: Mt940Statement = camt.try_into().unwrap();
 
         assert_eq!(mt940.account_id, "DK8030000001234567");
         assert_eq!(mt940.opening_balance.credit_debit, 'C');
         assert_eq!(mt940.opening_balance.amount, 100000);
+    }
+
+    #[test]
+    fn test_camt053_to_mt940_missing_balance() {
+        let camt = Camt053Statement {
+            message_id: "MSG001".to_string(),
+            creation_date_time: "2024-01-01T00:00:00".to_string(),
+            statement_id: "STMT001".to_string(),
+            account: Camt053Account {
+                iban: Some("DK8030000001234567".to_string()),
+                currency: "DKK".to_string(),
+                name: None,
+                owner_name: None,
+            },
+            balances: vec![],
+            entries: vec![],
+        };
+
+        let result: Result<Mt940Statement, _> = camt.try_into();
+        assert!(result.is_err());
     }
 }
