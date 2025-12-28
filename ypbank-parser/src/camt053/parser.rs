@@ -201,12 +201,60 @@ impl Camt053Statement {
             Error::Parse(format!("Не найден закрывающий тег {}", tag))
         })?;
 
-        let amount_str = &content[value_start..value_start + value_end];
-        let amount: f64 = amount_str.trim().parse().map_err(|_| {
-            Error::Parse(format!("Некорректная сумма: {}", amount_str))
-        })?;
+        let amount_str = content[value_start..value_start + value_end].trim();
+        let amount = Self::parse_decimal_amount(amount_str)?;
 
-        Ok(((amount * 100.0).round() as i64, currency))
+        Ok((amount, currency))
+    }
+
+    /// Парсит сумму из строки без использования f64.
+    /// Поддерживает форматы: "123.45", "123,45", "123"
+    fn parse_decimal_amount(amount_str: &str) -> Result<i64> {
+        let amount_str = amount_str.trim();
+
+        if amount_str.is_empty() {
+            return Err(Error::Parse("Пустая сумма".to_string()));
+        }
+
+        let is_negative = amount_str.starts_with('-');
+        let amount_str = amount_str.trim_start_matches('-');
+
+        let normalized = amount_str.replace(',', ".");
+
+        let (whole_str, frac_str) = if let Some(dot_pos) = normalized.find('.') {
+            (&normalized[..dot_pos], &normalized[dot_pos + 1..])
+        } else {
+            (normalized.as_str(), "")
+        };
+
+        let whole: i64 = if whole_str.is_empty() {
+            0
+        } else {
+            whole_str.parse().map_err(|_| {
+                Error::Parse(format!("Некорректная целая часть суммы: {}", whole_str))
+            })?
+        };
+
+        let frac: i64 = if frac_str.is_empty() {
+            0
+        } else {
+            let frac_padded = match frac_str.len() {
+                0 => "00".to_string(),
+                1 => format!("{}0", frac_str),
+                2 => frac_str.to_string(),
+                _ => frac_str[..2].to_string(),
+            };
+            frac_padded.parse().map_err(|_| {
+                Error::Parse(format!("Некорректная дробная часть суммы: {}", frac_str))
+            })?
+        };
+
+        let amount = whole
+            .checked_mul(100)
+            .and_then(|w| w.checked_add(frac))
+            .ok_or_else(|| Error::Parse("Переполнение при парсинге суммы".to_string()))?;
+
+        Ok(if is_negative { -amount } else { amount })
     }
 
     fn parse_date_element(content: &str) -> Result<Date> {
