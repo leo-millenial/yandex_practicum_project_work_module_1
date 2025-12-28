@@ -79,8 +79,12 @@ impl Camt053Statement {
             ));
         }
 
-        let message_id = Self::extract_element_value(content, "MsgId").unwrap_or_default();
-        let creation_date_time = Self::extract_element_value(content, "CreDtTm").unwrap_or_default();
+        let message_id = Self::extract_element_value(content, "MsgId").ok_or_else(|| {
+            Error::MissingField("Не найден обязательный элемент MsgId".to_string())
+        })?;
+        let creation_date_time = Self::extract_element_value(content, "CreDtTm").ok_or_else(|| {
+            Error::MissingField("Не найден обязательный элемент CreDtTm".to_string())
+        })?;
 
         let stmt_start = content.find("<Stmt>").ok_or_else(|| {
             Error::InvalidFormat("Не найден элемент Stmt".to_string())
@@ -90,7 +94,9 @@ impl Camt053Statement {
         })?;
         let stmt_content = &content[stmt_start..stmt_end + 7];
 
-        let statement_id = Self::extract_element_value(stmt_content, "Id").unwrap_or_default();
+        let statement_id = Self::extract_element_value(stmt_content, "Id").ok_or_else(|| {
+            Error::MissingField("Не найден обязательный элемент Id в Stmt".to_string())
+        })?;
         let account = Self::parse_account(stmt_content)?;
         let balances = Self::parse_balances(stmt_content)?;
         let entries = Self::parse_entries(stmt_content)?;
