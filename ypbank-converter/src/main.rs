@@ -143,7 +143,9 @@ fn convert_and_write<W: Write>(
         (Format::Camt053, Format::Mt940) => {
             let camt = Camt053Statement::parse(content)
                 .map_err(|e| format!("Ошибка парсинга CAMT.053: {}", e))?;
-            let mt940: Mt940Statement = camt.into();
+            let mt940: Mt940Statement = camt
+                .try_into()
+                .map_err(|e| format!("Ошибка конвертации CAMT.053 в MT940: {}", e))?;
             mt940
                 .write_to(writer)
                 .map_err(|e| format!("Ошибка записи MT940: {}", e))?;
