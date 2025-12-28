@@ -1,111 +1,63 @@
 //! CLI-утилита для конвертации банковских выписок между форматами.
 
-use std::env;
+use clap::{Parser, ValueEnum};
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::process;
 
-use ypbank_parser::{
-    Camt053Statement, Format, Mt940Statement, Statement, parse_statement,
-};
+use ypbank_parser::{Camt053Statement, Format, Mt940Statement, Statement, parse_statement};
 
-struct Args {
-    input: Option<String>,
-    output: Option<String>,
-    input_format: Format,
-    output_format: Format,
+/// Поддерживаемые форматы выписок.
+#[derive(Clone, Copy, ValueEnum)]
+enum FormatArg {
+    /// MT940 (SWIFT)
+    Mt940,
+    /// CAMT.053 (ISO 20022 XML)
+    Camt053,
+    /// CSV
+    Csv,
 }
 
-fn print_usage() {
-    eprintln!("YPBank Converter - конвертер банковских выписок");
-    eprintln!();
-    eprintln!("Использование:");
-    eprintln!("  ypbank-converter [опции]");
-    eprintln!();
-    eprintln!("Опции:");
-    eprintln!("  --input, -i <файл>         Входной файл (по умолчанию stdin)");
-    eprintln!("  --output, -o <файл>        Выходной файл (по умолчанию stdout)");
-    eprintln!("  --input-format, -if <формат>   Формат входных данных (mt940, camt053, csv)");
-    eprintln!("  --output-format, -of <формат>  Формат выходных данных (mt940, camt053, csv)");
-    eprintln!("  --help, -h                 Показать справку");
-    eprintln!();
-    eprintln!("Примеры:");
-    eprintln!("  ypbank-converter -i statement.mt940 -if mt940 -of csv > output.csv");
-    eprintln!("  ypbank-converter -if mt940 -of camt053 < input.mt940 > output.xml");
-}
-
-fn parse_args() -> Result<Args, String> {
-    let args: Vec<String> = env::args().collect();
-
-    let mut input = None;
-    let mut output = None;
-    let mut input_format = None;
-    let mut output_format = None;
-
-    let mut i = 1;
-    while i < args.len() {
-        match args[i].as_str() {
-            "--help" | "-h" => {
-                print_usage();
-                process::exit(0);
-            }
-            "--input" | "-i" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err("Отсутствует значение для --input".to_string());
-                }
-                input = Some(args[i].clone());
-            }
-            "--output" | "-o" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err("Отсутствует значение для --output".to_string());
-                }
-                output = Some(args[i].clone());
-            }
-            "--input-format" | "-if" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err("Отсутствует значение для --input-format".to_string());
-                }
-                input_format = Format::parse(&args[i]);
-                if input_format.is_none() {
-                    return Err(format!("Неизвестный формат: {}", args[i]));
-                }
-            }
-            "--output-format" | "-of" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err("Отсутствует значение для --output-format".to_string());
-                }
-                output_format = Format::parse(&args[i]);
-                if output_format.is_none() {
-                    return Err(format!("Неизвестный формат: {}", args[i]));
-                }
-            }
-            arg => {
-                return Err(format!("Неизвестный аргумент: {}", arg));
-            }
+impl From<FormatArg> for Format {
+    fn from(arg: FormatArg) -> Self {
+        match arg {
+            FormatArg::Mt940 => Format::Mt940,
+            FormatArg::Camt053 => Format::Camt053,
+            FormatArg::Csv => Format::Csv,
         }
-        i += 1;
     }
+}
 
-    let input_format = input_format.ok_or("Не указан формат входных данных (--input-format)")?;
-    let output_format = output_format.ok_or("Не указан формат выходных данных (--output-format)")?;
+/// YPBank Converter - конвертер банковских выписок.
+///
+/// Поддерживает конвертацию между форматами MT940, CAMT.053 и CSV.
+#[derive(Parser)]
+#[command(name = "ypbank-converter")]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Входной файл (по умолчанию stdin)
+    #[arg(short, long)]
+    input: Option<String>,
 
-    Ok(Args {
-        input,
-        output,
-        input_format,
-        output_format,
-    })
+    /// Выходной файл (по умолчанию stdout)
+    #[arg(short, long)]
+    output: Option<String>,
+
+    /// Формат входных данных
+    #[arg(short = 'f', long = "input-format", value_enum)]
+    input_format: FormatArg,
+
+    /// Формат выходных данных
+    #[arg(short = 't', long = "output-format", value_enum)]
+    output_format: FormatArg,
 }
 
 fn read_input(args: &Args) -> Result<String, String> {
     let mut content = String::new();
 
     if let Some(ref path) = args.input {
-        let mut file = File::open(path).map_err(|e| format!("Не удалось открыть файл '{}': {}", path, e))?;
+        let mut file = File::open(path)
+            .map_err(|e| format!("Не удалось открыть файл '{}': {}", path, e))?;
         file.read_to_string(&mut content)
             .map_err(|e| format!("Не удалось прочитать файл '{}': {}", path, e))?;
     } else {
@@ -194,15 +146,7 @@ fn write_csv<W: Write>(statement: &Statement, writer: &mut W) -> Result<(), Stri
 }
 
 fn main() {
-    let args = match parse_args() {
-        Ok(args) => args,
-        Err(e) => {
-            eprintln!("Ошибка: {}", e);
-            eprintln!();
-            print_usage();
-            process::exit(1);
-        }
-    };
+    let args = Args::parse();
 
     let content = match read_input(&args) {
         Ok(c) => c,
@@ -212,6 +156,9 @@ fn main() {
         }
     };
 
+    let input_format: Format = args.input_format.into();
+    let output_format: Format = args.output_format.into();
+
     let result = if let Some(ref path) = args.output {
         let mut file = match File::create(path) {
             Ok(f) => f,
@@ -220,10 +167,10 @@ fn main() {
                 process::exit(1);
             }
         };
-        convert_and_write(&content, args.input_format, args.output_format, &mut file)
+        convert_and_write(&content, input_format, output_format, &mut file)
     } else {
         let mut stdout = io::stdout();
-        convert_and_write(&content, args.input_format, args.output_format, &mut stdout)
+        convert_and_write(&content, input_format, output_format, &mut stdout)
     };
 
     if let Err(e) = result {

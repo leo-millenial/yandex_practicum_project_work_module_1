@@ -4,5 +4,6 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+clap = { version = "4", features = ["derive"] }
 ypbank-parser = { path = "../ypbank-parser" }
 
