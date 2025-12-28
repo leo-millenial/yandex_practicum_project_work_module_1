@@ -151,7 +151,7 @@ impl CsvStatement {
                     match Self::parse_transaction_record(&full_record) {
                         Ok(tx) => transactions.push(tx),
                         Err(e) => {
-                            eprintln!("Предупреждение: не удалось распарсить транзакцию: {}", e);
+                            tracing::warn!("Не удалось распарсить транзакцию: {}", e);
                         }
                     }
 

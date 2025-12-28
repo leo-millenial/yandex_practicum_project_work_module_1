@@ -1,7 +1,7 @@
 //! Интеграционные тесты для ypbank-parser.
 
 use std::io::Cursor;
-use ypbank_parser::{Camt053Statement, Mt940Statement, Statement};
+use ypbank_parser::{BalanceType, Camt053Statement, Mt940Statement, Statement};
 
 const SAMPLE_MT940: &str = r#"{1:F01ASNBNL21XXXX0000000000}{2:O940ASNBNL21XXXXN}{3:}{4:
 :20:0000000000
@@ -122,11 +122,11 @@ fn test_camt053_parse() {
     assert_eq!(statement.account.currency, "DKK");
     assert_eq!(statement.balances.len(), 2, "Expected 2 balances");
 
-    let opbd = statement.balances.iter().find(|b| b.balance_type == "OPBD");
+    let opbd = statement.balances.iter().find(|b| b.balance_type == BalanceType::Opening);
     assert!(opbd.is_some(), "Expected OPBD balance");
     assert_eq!(opbd.unwrap().amount, 1000000);
 
-    let clbd = statement.balances.iter().find(|b| b.balance_type == "CLBD");
+    let clbd = statement.balances.iter().find(|b| b.balance_type == BalanceType::Closing);
     assert!(clbd.is_some(), "Expected CLBD balance");
 }
 
@@ -148,7 +148,7 @@ fn test_mt940_to_camt053_conversion() {
 
     assert!(camt.account.iban.is_some());
     assert_eq!(camt.balances.len(), 2);
-    let opening = camt.balances.iter().find(|b| b.balance_type == "OPBD").unwrap();
+    let opening = camt.balances.iter().find(|b| b.balance_type == BalanceType::Opening).unwrap();
     assert_eq!(opening.amount, 44429);
 }
 

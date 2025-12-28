@@ -2,14 +2,23 @@
 
 use crate::error::Result;
 use crate::mt940::parser::{Mt940Balance, Mt940Statement, Mt940Transaction};
-use std::io::Write;
+use std::io::{BufWriter, Write};
 
 /// Writer для формата MT940.
 pub struct Mt940Writer;
 
 impl Mt940Writer {
     /// Записывает выписку MT940 в любой приемник, реализующий трейт Write.
+    ///
+    /// Использует внутреннюю буферизацию для уменьшения количества syscalls.
     pub fn write_to<W: Write>(statement: &Mt940Statement, writer: &mut W) -> Result<()> {
+        let mut buf_writer = BufWriter::new(writer);
+        Self::write_to_buffered(statement, &mut buf_writer)?;
+        buf_writer.flush()?;
+        Ok(())
+    }
+
+    fn write_to_buffered<W: Write>(statement: &Mt940Statement, writer: &mut W) -> Result<()> {
         writeln!(writer, "{{1:F01BANKXXXX0000000000}}")?;
         writeln!(writer, "{{2:O940BANKXXXXN}}")?;
         writeln!(writer, "{{3:}}")?;

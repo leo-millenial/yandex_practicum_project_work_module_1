@@ -73,7 +73,7 @@ impl Mt940Statement {
             match Self::parse_single_statement(block_content) {
                 Ok(stmt) => statements.push(stmt),
                 Err(e) => {
-                    eprintln!("Предупреждение: не удалось распарсить блок MT940: {}", e);
+                    tracing::warn!("Не удалось распарсить блок MT940: {}", e);
                 }
             }
         }
@@ -87,48 +87,104 @@ impl Mt940Statement {
         Ok(statements)
     }
 
+    /// Однопроходный парсер MT940 блока.
+    ///
+    /// Итерируется по строкам контента один раз, распознавая теги
+    /// :20:, :25:, :28C:, :60F:/:60M:, :61:, :86:, :62F:/:62M:
+    /// по мере прохода. Это уменьшает сложность с O(n*m) до O(n),
+    /// где n - длина контента, m - количество тегов.
     fn parse_single_statement(content: &str) -> Result<Self> {
-        let reference = Self::extract_tag(content, ":20:")?;
-        let account_id = Self::extract_tag(content, ":25:")?;
-        let statement_number = Self::extract_tag(content, ":28C:").unwrap_or_default();
+        let mut reference = None;
+        let mut account_id = None;
+        let mut statement_number = String::new();
+        let mut opening_balance = None;
+        let mut closing_balance = None;
+        let mut transactions = Vec::new();
 
-        let opening_balance = Self::parse_balance(content, ":60F:")
-            .or_else(|_| Self::parse_balance(content, ":60M:"))?;
+        let mut current_tx_line: Option<String> = None;
+        let mut current_details = String::new();
+        let mut in_details = false;
 
-        let closing_balance = Self::parse_balance(content, ":62F:")
-            .or_else(|_| Self::parse_balance(content, ":62M:"))?;
+        for line in content.lines() {
+            let line = line.trim_end();
 
-        let transactions = Self::parse_transactions(content)?;
+            // Распознаём тег в начале строки
+            if let Some(stripped) = line.strip_prefix(":20:") {
+                reference = Some(stripped.trim().to_string());
+                in_details = false;
+            } else if let Some(stripped) = line.strip_prefix(":25:") {
+                account_id = Some(stripped.trim().to_string());
+                in_details = false;
+            } else if let Some(stripped) = line.strip_prefix(":28C:") {
+                statement_number = stripped.trim().to_string();
+                in_details = false;
+            } else if line.starts_with(":60F:") || line.starts_with(":60M:") {
+                let value = &line[5..];
+                opening_balance = Some(Self::parse_balance_value(value)?);
+                in_details = false;
+            } else if line.starts_with(":62F:") || line.starts_with(":62M:") {
+                let value = &line[5..];
+                closing_balance = Some(Self::parse_balance_value(value)?);
+                in_details = false;
+            } else if let Some(stripped) = line.strip_prefix(":61:") {
+                // Сохраняем предыдущую транзакцию, если была
+                if let Some(tx_line) = current_tx_line.take() {
+                    match Self::parse_transaction_line(&tx_line, &current_details) {
+                        Ok(tx) => transactions.push(tx),
+                        Err(e) => {
+                            tracing::warn!("Не удалось распарсить транзакцию: {}", e);
+                        }
+                    }
+                    current_details.clear();
+                }
+                current_tx_line = Some(stripped.trim().to_string());
+                in_details = false;
+            } else if let Some(stripped) = line.strip_prefix(":86:") {
+                current_details = stripped.trim().to_string();
+                in_details = true;
+            } else if line.starts_with(':') {
+                // Другой тег - завершаем details
+                in_details = false;
+            } else if in_details && !line.is_empty() {
+                // Продолжение details (многострочное поле :86:)
+                if !current_details.is_empty() {
+                    current_details.push(' ');
+                }
+                current_details.push_str(line.trim());
+            }
+        }
+
+        // Сохраняем последнюю транзакцию
+        if let Some(tx_line) = current_tx_line {
+            match Self::parse_transaction_line(&tx_line, &current_details) {
+                Ok(tx) => transactions.push(tx),
+                Err(e) => {
+                    tracing::warn!("Не удалось распарсить транзакцию: {}", e);
+                }
+            }
+        }
 
         Ok(Mt940Statement {
-            reference,
-            account_id,
+            reference: reference.ok_or_else(|| Error::MissingField(":20:".to_string()))?,
+            account_id: account_id.ok_or_else(|| Error::MissingField(":25:".to_string()))?,
             statement_number,
-            opening_balance,
-            closing_balance,
+            opening_balance: opening_balance
+                .ok_or_else(|| Error::MissingField(":60F: или :60M:".to_string()))?,
+            closing_balance: closing_balance
+                .ok_or_else(|| Error::MissingField(":62F: или :62M:".to_string()))?,
             transactions,
         })
     }
 
-    fn extract_tag(content: &str, tag: &str) -> Result<String> {
-        let start = content
-            .find(tag)
-            .ok_or_else(|| Error::MissingField(tag.to_string()))?;
-
-        let value_start = start + tag.len();
-        let value_end = content[value_start..]
-            .find('\n')
-            .map(|pos| value_start + pos)
-            .unwrap_or(content.len());
-
-        Ok(content[value_start..value_end].trim().to_string())
-    }
-
-    fn parse_balance(content: &str, tag: &str) -> Result<Mt940Balance> {
-        let value = Self::extract_tag(content, tag)?;
+    /// Парсит значение баланса (без тега).
+    fn parse_balance_value(value: &str) -> Result<Mt940Balance> {
+        let value = value.trim();
 
         if value.len() < 10 {
-            return Err(Error::Parse(format!("Некорректный формат баланса: {}", value)));
+            return Err(Error::Parse(format!(
+                "Некорректный формат баланса: {}",
+                value
+            )));
         }
 
         let credit_debit = value.chars().next().ok_or_else(|| {
@@ -151,7 +207,10 @@ impl Mt940Statement {
 
     fn parse_date(date_str: &str) -> Result<Date> {
         if date_str.len() != 6 {
-            return Err(Error::Parse(format!("Некорректный формат даты: {}", date_str)));
+            return Err(Error::Parse(format!(
+                "Некорректный формат даты: {}",
+                date_str
+            )));
         }
 
         let year: u16 = date_str[0..2]
@@ -178,54 +237,6 @@ impl Mt940Statement {
             .map_err(|_| Error::Parse(format!("Некорректная сумма: {}", amount_str)))?;
 
         Ok((amount * 100.0).round() as i64)
-    }
-
-    fn parse_transactions(content: &str) -> Result<Vec<Mt940Transaction>> {
-        let mut transactions = Vec::new();
-        let mut current_pos = 0;
-
-        while let Some(tag_pos) = content[current_pos..].find(":61:") {
-            let abs_pos = current_pos + tag_pos;
-            let value_start = abs_pos + 4;
-
-            let line_end = content[value_start..]
-                .find('\n')
-                .map(|pos| value_start + pos)
-                .unwrap_or(content.len());
-
-            let transaction_line = &content[value_start..line_end];
-
-            let details_start = content[line_end..].find(":86:");
-            let details = if let Some(pos) = details_start {
-                let details_value_start = line_end + pos + 4;
-                let details_end = content[details_value_start..]
-                    .find("\n:")
-                    .map(|p| details_value_start + p)
-                    .unwrap_or_else(|| {
-                        content[details_value_start..]
-                            .find("-}")
-                            .map(|p| details_value_start + p)
-                            .unwrap_or(content.len())
-                    });
-
-                content[details_value_start..details_end]
-                    .trim()
-                    .replace('\n', " ")
-            } else {
-                String::new()
-            };
-
-            match Self::parse_transaction_line(transaction_line, &details) {
-                Ok(tx) => transactions.push(tx),
-                Err(e) => {
-                    eprintln!("Предупреждение: не удалось распарсить транзакцию: {}", e);
-                }
-            }
-
-            current_pos = line_end + 1;
-        }
-
-        Ok(transactions)
     }
 
     fn parse_transaction_line(line: &str, details: &str) -> Result<Mt940Transaction> {

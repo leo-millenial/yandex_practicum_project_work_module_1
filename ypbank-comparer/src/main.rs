@@ -1,111 +1,59 @@
 //! CLI-утилита для сравнения транзакций из двух банковских выписок.
 
-use std::env;
+use clap::{Parser, ValueEnum};
 use std::fs::File;
 use std::io::Read;
 use std::process;
 
 use ypbank_parser::{Format, Statement, Transaction, parse_statement};
 
-struct Args {
-    file1: String,
-    format1: Format,
-    file2: String,
-    format2: Format,
-    verbose: bool,
+/// Поддерживаемые форматы выписок.
+#[derive(Clone, Copy, ValueEnum)]
+enum FormatArg {
+    /// MT940 (SWIFT)
+    Mt940,
+    /// CAMT.053 (ISO 20022 XML)
+    Camt053,
+    /// CSV
+    Csv,
 }
 
-fn print_usage() {
-    eprintln!("YPBank Comparer - сравнение банковских выписок");
-    eprintln!();
-    eprintln!("Использование:");
-    eprintln!("  ypbank-comparer [опции]");
-    eprintln!();
-    eprintln!("Опции:");
-    eprintln!("  --file1, -f1 <файл>        Первый файл выписки");
-    eprintln!("  --format1, -fmt1 <формат>  Формат первого файла (mt940, camt053, csv)");
-    eprintln!("  --file2, -f2 <файл>        Второй файл выписки");
-    eprintln!("  --format2, -fmt2 <формат>  Формат второго файла (mt940, camt053, csv)");
-    eprintln!("  --verbose, -v              Подробный вывод");
-    eprintln!("  --help, -h                 Показать справку");
-    eprintln!();
-    eprintln!("Примеры:");
-    eprintln!("  ypbank-comparer -f1 a.mt940 -fmt1 mt940 -f2 b.csv -fmt2 csv");
-    eprintln!("  ypbank-comparer -f1 a.xml -fmt1 camt053 -f2 b.mt940 -fmt2 mt940 -v");
-}
-
-fn parse_args() -> Result<Args, String> {
-    let args: Vec<String> = env::args().collect();
-
-    let mut file1 = None;
-    let mut format1 = None;
-    let mut file2 = None;
-    let mut format2 = None;
-    let mut verbose = false;
-
-    let mut i = 1;
-    while i < args.len() {
-        match args[i].as_str() {
-            "--help" | "-h" => {
-                print_usage();
-                process::exit(0);
-            }
-            "--verbose" | "-v" => {
-                verbose = true;
-            }
-            "--file1" | "-f1" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err("Отсутствует значение для --file1".to_string());
-                }
-                file1 = Some(args[i].clone());
-            }
-            "--file2" | "-f2" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err("Отсутствует значение для --file2".to_string());
-                }
-                file2 = Some(args[i].clone());
-            }
-            "--format1" | "-fmt1" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err("Отсутствует значение для --format1".to_string());
-                }
-                format1 = Format::parse(&args[i]);
-                if format1.is_none() {
-                    return Err(format!("Неизвестный формат: {}", args[i]));
-                }
-            }
-            "--format2" | "-fmt2" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err("Отсутствует значение для --format2".to_string());
-                }
-                format2 = Format::parse(&args[i]);
-                if format2.is_none() {
-                    return Err(format!("Неизвестный формат: {}", args[i]));
-                }
-            }
-            arg => {
-                return Err(format!("Неизвестный аргумент: {}", arg));
-            }
+impl From<FormatArg> for Format {
+    fn from(arg: FormatArg) -> Self {
+        match arg {
+            FormatArg::Mt940 => Format::Mt940,
+            FormatArg::Camt053 => Format::Camt053,
+            FormatArg::Csv => Format::Csv,
         }
-        i += 1;
     }
+}
 
-    let file1 = file1.ok_or("Не указан первый файл (--file1)")?;
-    let format1 = format1.ok_or("Не указан формат первого файла (--format1)")?;
-    let file2 = file2.ok_or("Не указан второй файл (--file2)")?;
-    let format2 = format2.ok_or("Не указан формат второго файла (--format2)")?;
+/// YPBank Comparer - сравнение банковских выписок.
+///
+/// Сравнивает транзакции из двух файлов выписок и показывает различия.
+#[derive(Parser)]
+#[command(name = "ypbank-comparer")]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Первый файл выписки
+    #[arg(long = "file1", short = '1')]
+    file1: String,
 
-    Ok(Args {
-        file1,
-        format1,
-        file2,
-        format2,
-        verbose,
-    })
+    /// Формат первого файла
+    #[arg(long = "format1", short = 'a', value_enum)]
+    format1: FormatArg,
+
+    /// Второй файл выписки
+    #[arg(long = "file2", short = '2')]
+    file2: String,
+
+    /// Формат второго файла
+    #[arg(long = "format2", short = 'b', value_enum)]
+    format2: FormatArg,
+
+    /// Подробный вывод
+    #[arg(short, long)]
+    verbose: bool,
 }
 
 fn read_file(path: &str) -> Result<String, String> {
@@ -173,7 +121,8 @@ fn compare_statements(stmt1: &Statement, stmt2: &Statement) -> ComparisonResult 
 
             if transactions_match(tx1, tx2) {
                 let score = calculate_match_score(tx1, tx2);
-                if best_match.is_none() || score > best_match.as_ref().map(|(_, s)| *s).unwrap_or(0) {
+                if best_match.is_none() || score > best_match.as_ref().map(|(_, s)| *s).unwrap_or(0)
+                {
                     best_match = Some((j, score));
                 }
             }
@@ -214,20 +163,24 @@ fn format_transaction(tx: &Transaction) -> String {
 
     format!(
         "{} {} {:.2} {} | {} | {}",
-        tx.date, tx_type, tx.amount.as_float(), tx.amount.currency, reference, description
+        tx.date,
+        tx_type,
+        tx.amount.as_float(),
+        tx.amount.currency,
+        reference,
+        description
     )
 }
 
 fn percent(part: usize, total: usize) -> f64 {
-    if total == 0 { 0.0 } else { part as f64 / total as f64 * 100.0 }
+    if total == 0 {
+        0.0
+    } else {
+        part as f64 / total as f64 * 100.0
+    }
 }
 
-fn print_results(
-    result: &ComparisonResult,
-    stmt1: &Statement,
-    stmt2: &Statement,
-    verbose: bool,
-) {
+fn print_results(result: &ComparisonResult, stmt1: &Statement, stmt2: &Statement, verbose: bool) {
     println!("=== Результаты сравнения ===");
     println!();
 
@@ -287,15 +240,7 @@ fn print_results(
 }
 
 fn main() {
-    let args = match parse_args() {
-        Ok(args) => args,
-        Err(e) => {
-            eprintln!("Ошибка: {}", e);
-            eprintln!();
-            print_usage();
-            process::exit(1);
-        }
-    };
+    let args = Args::parse();
 
     let content1 = match read_file(&args.file1) {
         Ok(c) => c,
@@ -305,7 +250,8 @@ fn main() {
         }
     };
 
-    let stmt1 = match parse_statement(&content1, args.format1) {
+    let format1: Format = args.format1.into();
+    let stmt1 = match parse_statement(&content1, format1) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("Ошибка в файле 1: {}", e);
@@ -321,7 +267,8 @@ fn main() {
         }
     };
 
-    let stmt2 = match parse_statement(&content2, args.format2) {
+    let format2: Format = args.format2.into();
+    let stmt2 = match parse_statement(&content2, format2) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("Ошибка в файле 2: {}", e);

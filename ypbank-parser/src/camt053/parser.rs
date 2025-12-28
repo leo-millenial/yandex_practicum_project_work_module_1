@@ -1,7 +1,10 @@
 //! Парсер формата CAMT.053 (ISO 20022 XML).
 
 use crate::error::{Error, Result};
-use crate::types::{Account, Amount, Balance, Counterparty, Date, Statement, Transaction};
+use crate::types::{
+    Account, Amount, Balance, BalanceType, Counterparty, CreditDebit, Date, Statement, Transaction,
+    CREDIT_INDICATOR,
+};
 use std::io::Read;
 
 /// Выписка в формате CAMT.053.
@@ -37,14 +40,14 @@ pub struct Camt053Account {
 /// Баланс в формате CAMT.053.
 #[derive(Debug, Clone)]
 pub struct Camt053Balance {
-    /// Тип баланса (OPBD, CLBD и др.).
-    pub balance_type: String,
+    /// Тип баланса (начальный, конечный и др.).
+    pub balance_type: BalanceType,
     /// Сумма в минимальных единицах.
     pub amount: i64,
     /// Код валюты.
     pub currency: String,
-    /// Индикатор кредит/дебет (CRDT/DBIT).
-    pub credit_debit_indicator: String,
+    /// Индикатор кредит/дебет.
+    pub credit_debit: CreditDebit,
     /// Дата баланса.
     pub date: Date,
 }
@@ -58,8 +61,8 @@ pub struct Camt053Entry {
     pub amount: i64,
     /// Код валюты.
     pub currency: String,
-    /// Индикатор кредит/дебет (CRDT/DBIT).
-    pub credit_debit_indicator: String,
+    /// Индикатор кредит/дебет.
+    pub credit_debit: CreditDebit,
     /// Дата проводки.
     pub booking_date: Date,
     /// Дата валютирования.
@@ -190,7 +193,7 @@ impl Camt053Statement {
             match Self::parse_single_balance(bal_content) {
                 Ok(balance) => balances.push(balance),
                 Err(e) => {
-                    eprintln!("Предупреждение: не удалось распарсить баланс: {}", e);
+                    tracing::warn!("Не удалось распарсить баланс: {}", e);
                 }
             }
 
@@ -201,17 +204,19 @@ impl Camt053Statement {
     }
 
     fn parse_single_balance(content: &str) -> Result<Camt053Balance> {
-        let balance_type = Self::extract_element_value(content, "Cd").unwrap_or_default();
+        let balance_type_str = Self::extract_element_value(content, "Cd").unwrap_or_default();
+        let balance_type = BalanceType::from_code(&balance_type_str);
         let (amount, currency) = Self::parse_amount_with_currency(content, "Amt")?;
-        let credit_debit_indicator =
-            Self::extract_element_value(content, "CdtDbtInd").unwrap_or_else(|| "CRDT".to_string());
+        let credit_debit_str =
+            Self::extract_element_value(content, "CdtDbtInd").unwrap_or_else(|| CREDIT_INDICATOR.to_string());
+        let credit_debit = CreditDebit::from_code(&credit_debit_str);
         let date = Self::parse_date_element(content)?;
 
         Ok(Camt053Balance {
             balance_type,
             amount,
             currency,
-            credit_debit_indicator,
+            credit_debit,
             date,
         })
     }
@@ -361,7 +366,7 @@ impl Camt053Statement {
             match Self::parse_single_entry(ntry_content) {
                 Ok(entry) => entries.push(entry),
                 Err(e) => {
-                    eprintln!("Предупреждение: не удалось распарсить запись: {}", e);
+                    tracing::warn!("Не удалось распарсить запись: {}", e);
                 }
             }
 
@@ -374,8 +379,9 @@ impl Camt053Statement {
     fn parse_single_entry(content: &str) -> Result<Camt053Entry> {
         let entry_ref = Self::extract_element_value(content, "NtryRef");
         let (amount, currency) = Self::parse_amount_with_currency(content, "Amt")?;
-        let credit_debit_indicator =
-            Self::extract_element_value(content, "CdtDbtInd").unwrap_or_else(|| "CRDT".to_string());
+        let credit_debit_str =
+            Self::extract_element_value(content, "CdtDbtInd").unwrap_or_else(|| CREDIT_INDICATOR.to_string());
+        let credit_debit = CreditDebit::from_code(&credit_debit_str);
 
         let booking_date = if let Some(bookg_start) = content.find("<BookgDt>") {
             let bookg_end = content.find("</BookgDt>").unwrap_or(content.len());
@@ -398,7 +404,7 @@ impl Camt053Statement {
             entry_ref,
             amount,
             currency,
-            credit_debit_indicator,
+            credit_debit,
             booking_date,
             value_date,
             account_servicer_ref,
@@ -502,10 +508,10 @@ impl From<Camt053Statement> for Statement {
         let opening_balance = camt
             .balances
             .iter()
-            .find(|b| b.balance_type == "OPBD")
+            .find(|b| b.balance_type == BalanceType::Opening)
             .map(|b| Balance {
                 amount: Amount::new(
-                    if b.credit_debit_indicator == "DBIT" {
+                    if b.credit_debit == CreditDebit::Debit {
                         -b.amount
                     } else {
                         b.amount
@@ -513,7 +519,7 @@ impl From<Camt053Statement> for Statement {
                     &b.currency,
                 ),
                 date: b.date.clone(),
-                is_credit: b.credit_debit_indicator == "CRDT",
+                is_credit: b.credit_debit.is_credit(),
             })
             .unwrap_or_else(|| Balance {
                 amount: Amount::new(0, &camt.account.currency),
@@ -524,10 +530,10 @@ impl From<Camt053Statement> for Statement {
         let closing_balance = camt
             .balances
             .iter()
-            .find(|b| b.balance_type == "CLBD")
+            .find(|b| b.balance_type == BalanceType::Closing)
             .map(|b| Balance {
                 amount: Amount::new(
-                    if b.credit_debit_indicator == "DBIT" {
+                    if b.credit_debit == CreditDebit::Debit {
                         -b.amount
                     } else {
                         b.amount
@@ -535,7 +541,7 @@ impl From<Camt053Statement> for Statement {
                     &b.currency,
                 ),
                 date: b.date.clone(),
-                is_credit: b.credit_debit_indicator == "CRDT",
+                is_credit: b.credit_debit.is_credit(),
             })
             .unwrap_or_else(|| Balance {
                 amount: Amount::new(0, &camt.account.currency),
@@ -547,7 +553,7 @@ impl From<Camt053Statement> for Statement {
             .entries
             .into_iter()
             .map(|entry| {
-                let is_credit = entry.credit_debit_indicator == "CRDT";
+                let is_credit = entry.credit_debit.is_credit();
 
                 let (counterparty, description) = if let Some(details) = entry.transaction_details.first() {
                     let counterparty = if is_credit {
