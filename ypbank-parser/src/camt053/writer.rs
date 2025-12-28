@@ -2,14 +2,23 @@
 
 use crate::camt053::parser::{Camt053Balance, Camt053Entry, Camt053Statement, Camt053TransactionDetails};
 use crate::error::Result;
-use std::io::Write;
+use std::io::{BufWriter, Write};
 
 /// Writer для формата CAMT.053.
 pub struct Camt053Writer;
 
 impl Camt053Writer {
     /// Записывает выписку CAMT.053 в любой приемник, реализующий трейт Write.
+    ///
+    /// Использует внутреннюю буферизацию для уменьшения количества syscalls.
     pub fn write_to<W: Write>(statement: &Camt053Statement, writer: &mut W) -> Result<()> {
+        let mut buf_writer = BufWriter::new(writer);
+        Self::write_to_buffered(statement, &mut buf_writer)?;
+        buf_writer.flush()?;
+        Ok(())
+    }
+
+    fn write_to_buffered<W: Write>(statement: &Camt053Statement, writer: &mut W) -> Result<()> {
         writeln!(writer, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>")?;
         writeln!(
             writer,
