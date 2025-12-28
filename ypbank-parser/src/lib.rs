@@ -80,7 +80,7 @@ pub fn parse_statements(content: &str, format: Format) -> Result<Vec<Statement>>
         }
         Format::Csv => {
             let csv = CsvStatement::parse(content)?;
-            Ok(vec![csv.into()])
+            Ok(vec![csv.try_into()?])
         }
     }
 }
