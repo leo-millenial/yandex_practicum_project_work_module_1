@@ -20,6 +20,8 @@
 //! let statement: Statement = mt940.into();
 //! ```
 
+#![warn(missing_docs)]
+
 pub mod error;
 pub mod types;
 pub mod mt940;

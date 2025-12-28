@@ -120,8 +120,14 @@ fn test_camt053_parse() {
     assert_eq!(statement.statement_id, "STMT001");
     assert_eq!(statement.account.iban, Some("DK8030000001234567".to_string()));
     assert_eq!(statement.account.currency, "DKK");
-    let _ = statement.balances.len();
-    let _ = statement.entries.len();
+    assert_eq!(statement.balances.len(), 2, "Expected 2 balances");
+
+    let opbd = statement.balances.iter().find(|b| b.balance_type == "OPBD");
+    assert!(opbd.is_some(), "Expected OPBD balance");
+    assert_eq!(opbd.unwrap().amount, 1000000);
+
+    let clbd = statement.balances.iter().find(|b| b.balance_type == "CLBD");
+    assert!(clbd.is_some(), "Expected CLBD balance");
 }
 
 #[test]
@@ -150,7 +156,9 @@ fn test_mt940_to_camt053_conversion() {
 fn test_camt053_to_mt940_conversion() {
     let camt = Camt053Statement::parse(SAMPLE_CAMT053).unwrap();
 
-    let mt940: Mt940Statement = camt.into();
+    assert!(camt.balances.len() >= 2, "Expected at least 2 balances, got {}", camt.balances.len());
+
+    let mt940: Mt940Statement = camt.try_into().unwrap();
 
     assert_eq!(mt940.account_id, "DK8030000001234567");
     assert_eq!(mt940.opening_balance.currency, "DKK");

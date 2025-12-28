@@ -7,22 +7,34 @@ use std::io::Read;
 /// Выписка в формате CSV.
 #[derive(Debug, Clone)]
 pub struct CsvStatement {
+    /// Номер счета (20 цифр).
     pub account_number: String,
+    /// Название владельца счета.
     pub account_name: String,
+    /// Код валюты (RUB по умолчанию).
     pub currency: String,
+    /// Список транзакций.
     pub transactions: Vec<CsvTransaction>,
 }
 
 /// Транзакция в формате CSV.
 #[derive(Debug, Clone)]
 pub struct CsvTransaction {
+    /// Дата операции.
     pub date: Date,
+    /// Счет дебета (откуда списаны средства).
     pub debit_account: Option<String>,
+    /// Счет кредита (куда зачислены средства).
     pub credit_account: Option<String>,
+    /// Сумма дебета в минимальных единицах.
     pub debit_amount: Option<i64>,
+    /// Сумма кредита в минимальных единицах.
     pub credit_amount: Option<i64>,
+    /// Номер документа.
     pub document_number: String,
+    /// Информация о банке контрагента.
     pub bank_info: String,
+    /// Назначение платежа.
     pub description: String,
 }
 
