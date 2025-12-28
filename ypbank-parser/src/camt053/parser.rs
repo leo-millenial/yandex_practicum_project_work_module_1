@@ -193,7 +193,7 @@ impl Camt053Statement {
             match Self::parse_single_balance(bal_content) {
                 Ok(balance) => balances.push(balance),
                 Err(e) => {
-                    eprintln!("Предупреждение: не удалось распарсить баланс: {}", e);
+                    tracing::warn!("Не удалось распарсить баланс: {}", e);
                 }
             }
 
@@ -366,7 +366,7 @@ impl Camt053Statement {
             match Self::parse_single_entry(ntry_content) {
                 Ok(entry) => entries.push(entry),
                 Err(e) => {
-                    eprintln!("Предупреждение: не удалось распарсить запись: {}", e);
+                    tracing::warn!("Не удалось распарсить запись: {}", e);
                 }
             }
 

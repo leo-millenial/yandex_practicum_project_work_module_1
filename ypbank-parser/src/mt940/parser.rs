@@ -73,7 +73,7 @@ impl Mt940Statement {
             match Self::parse_single_statement(block_content) {
                 Ok(stmt) => statements.push(stmt),
                 Err(e) => {
-                    eprintln!("Предупреждение: не удалось распарсить блок MT940: {}", e);
+                    tracing::warn!("Не удалось распарсить блок MT940: {}", e);
                 }
             }
         }
@@ -132,7 +132,7 @@ impl Mt940Statement {
                     match Self::parse_transaction_line(&tx_line, &current_details) {
                         Ok(tx) => transactions.push(tx),
                         Err(e) => {
-                            eprintln!("Предупреждение: не удалось распарсить транзакцию: {}", e);
+                            tracing::warn!("Не удалось распарсить транзакцию: {}", e);
                         }
                     }
                     current_details.clear();
@@ -159,7 +159,7 @@ impl Mt940Statement {
             match Self::parse_transaction_line(&tx_line, &current_details) {
                 Ok(tx) => transactions.push(tx),
                 Err(e) => {
-                    eprintln!("Предупреждение: не удалось распарсить транзакцию: {}", e);
+                    tracing::warn!("Не удалось распарсить транзакцию: {}", e);
                 }
             }
         }
