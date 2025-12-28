@@ -7,32 +7,49 @@ use std::io::Read;
 /// Выписка в формате MT940.
 #[derive(Debug, Clone)]
 pub struct Mt940Statement {
+    /// Референс выписки (поле :20:).
     pub reference: String,
+    /// Идентификатор счета (поле :25:).
     pub account_id: String,
+    /// Номер выписки (поле :28C:).
     pub statement_number: String,
+    /// Начальный баланс (поле :60F: или :60M:).
     pub opening_balance: Mt940Balance,
+    /// Конечный баланс (поле :62F: или :62M:).
     pub closing_balance: Mt940Balance,
+    /// Список транзакций (поля :61: и :86:).
     pub transactions: Vec<Mt940Transaction>,
 }
 
 /// Баланс в формате MT940.
 #[derive(Debug, Clone)]
 pub struct Mt940Balance {
+    /// Индикатор кредит/дебет ('C' или 'D').
     pub credit_debit: char,
+    /// Дата баланса.
     pub date: Date,
+    /// Код валюты (EUR, USD, RUB и т.д.).
     pub currency: String,
+    /// Сумма в минимальных единицах (копейки, центы).
     pub amount: i64,
 }
 
 /// Транзакция в формате MT940.
 #[derive(Debug, Clone)]
 pub struct Mt940Transaction {
+    /// Дата проводки.
     pub date: Date,
+    /// Дата валютирования.
     pub value_date: Option<Date>,
+    /// Индикатор кредит/дебет ('C' или 'D').
     pub credit_debit: char,
+    /// Сумма в минимальных единицах.
     pub amount: i64,
+    /// Тип транзакции (NTRF, NMSC и т.д.).
     pub transaction_type: String,
+    /// Референс транзакции.
     pub reference: Option<String>,
+    /// Детали/описание транзакции.
     pub details: String,
 }
 

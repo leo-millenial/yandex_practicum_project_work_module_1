@@ -7,57 +7,89 @@ use std::io::Read;
 /// Выписка в формате CAMT.053.
 #[derive(Debug, Clone)]
 pub struct Camt053Statement {
+    /// Идентификатор сообщения (MsgId).
     pub message_id: String,
+    /// Дата и время создания (CreDtTm).
     pub creation_date_time: String,
+    /// Идентификатор выписки (Id в Stmt).
     pub statement_id: String,
+    /// Информация о счете.
     pub account: Camt053Account,
+    /// Список балансов (начальный, конечный и др.).
     pub balances: Vec<Camt053Balance>,
+    /// Список записей (транзакций).
     pub entries: Vec<Camt053Entry>,
 }
 
 /// Счет в формате CAMT.053.
 #[derive(Debug, Clone)]
 pub struct Camt053Account {
+    /// IBAN счета.
     pub iban: Option<String>,
+    /// Код валюты (EUR, USD, RUB и т.д.).
     pub currency: String,
+    /// Название счета.
     pub name: Option<String>,
+    /// Имя владельца счета.
     pub owner_name: Option<String>,
 }
 
 /// Баланс в формате CAMT.053.
 #[derive(Debug, Clone)]
 pub struct Camt053Balance {
+    /// Тип баланса (OPBD, CLBD и др.).
     pub balance_type: String,
+    /// Сумма в минимальных единицах.
     pub amount: i64,
+    /// Код валюты.
     pub currency: String,
+    /// Индикатор кредит/дебет (CRDT/DBIT).
     pub credit_debit_indicator: String,
+    /// Дата баланса.
     pub date: Date,
 }
 
 /// Запись (транзакция) в формате CAMT.053.
 #[derive(Debug, Clone)]
 pub struct Camt053Entry {
+    /// Референс записи (NtryRef).
     pub entry_ref: Option<String>,
+    /// Сумма в минимальных единицах.
     pub amount: i64,
+    /// Код валюты.
     pub currency: String,
+    /// Индикатор кредит/дебет (CRDT/DBIT).
     pub credit_debit_indicator: String,
+    /// Дата проводки.
     pub booking_date: Date,
+    /// Дата валютирования.
     pub value_date: Option<Date>,
+    /// Референс от банка (AcctSvcrRef).
     pub account_servicer_ref: Option<String>,
+    /// Детали транзакций.
     pub transaction_details: Vec<Camt053TransactionDetails>,
 }
 
 /// Детали транзакции.
 #[derive(Debug, Clone)]
 pub struct Camt053TransactionDetails {
+    /// End-to-end идентификатор.
     pub end_to_end_id: Option<String>,
+    /// Идентификатор транзакции.
     pub transaction_id: Option<String>,
+    /// Сумма в минимальных единицах.
     pub amount: Option<i64>,
+    /// Код валюты.
     pub currency: Option<String>,
+    /// Имя плательщика.
     pub debtor_name: Option<String>,
+    /// Счет плательщика.
     pub debtor_account: Option<String>,
+    /// Имя получателя.
     pub creditor_name: Option<String>,
+    /// Счет получателя.
     pub creditor_account: Option<String>,
+    /// Информация о назначении платежа.
     pub remittance_info: Vec<String>,
 }
 
@@ -79,8 +111,12 @@ impl Camt053Statement {
             ));
         }
 
-        let message_id = Self::extract_element_value(content, "MsgId").unwrap_or_default();
-        let creation_date_time = Self::extract_element_value(content, "CreDtTm").unwrap_or_default();
+        let message_id = Self::extract_element_value(content, "MsgId").ok_or_else(|| {
+            Error::MissingField("Не найден обязательный элемент MsgId".to_string())
+        })?;
+        let creation_date_time = Self::extract_element_value(content, "CreDtTm").ok_or_else(|| {
+            Error::MissingField("Не найден обязательный элемент CreDtTm".to_string())
+        })?;
 
         let stmt_start = content.find("<Stmt>").ok_or_else(|| {
             Error::InvalidFormat("Не найден элемент Stmt".to_string())
@@ -90,7 +126,9 @@ impl Camt053Statement {
         })?;
         let stmt_content = &content[stmt_start..stmt_end + 7];
 
-        let statement_id = Self::extract_element_value(stmt_content, "Id").unwrap_or_default();
+        let statement_id = Self::extract_element_value(stmt_content, "Id").ok_or_else(|| {
+            Error::MissingField("Не найден обязательный элемент Id в Stmt".to_string())
+        })?;
         let account = Self::parse_account(stmt_content)?;
         let balances = Self::parse_balances(stmt_content)?;
         let entries = Self::parse_entries(stmt_content)?;
@@ -149,8 +187,11 @@ impl Camt053Statement {
             let bal_end = content[abs_start..].find("</Bal>").unwrap_or(content.len() - abs_start);
             let bal_content = &content[abs_start..abs_start + bal_end + 6];
 
-            if let Ok(balance) = Self::parse_single_balance(bal_content) {
-                balances.push(balance);
+            match Self::parse_single_balance(bal_content) {
+                Ok(balance) => balances.push(balance),
+                Err(e) => {
+                    eprintln!("Предупреждение: не удалось распарсить баланс: {}", e);
+                }
             }
 
             pos = abs_start + bal_end + 6;
@@ -201,24 +242,86 @@ impl Camt053Statement {
             Error::Parse(format!("Не найден закрывающий тег {}", tag))
         })?;
 
-        let amount_str = &content[value_start..value_start + value_end];
-        let amount: f64 = amount_str.trim().parse().map_err(|_| {
-            Error::Parse(format!("Некорректная сумма: {}", amount_str))
-        })?;
+        let amount_str = content[value_start..value_start + value_end].trim();
+        let amount = Self::parse_decimal_amount(amount_str)?;
 
-        Ok(((amount * 100.0).round() as i64, currency))
+        Ok((amount, currency))
+    }
+
+    /// Парсит сумму из строки без использования f64.
+    /// Поддерживает форматы: "123.45", "123,45", "123"
+    fn parse_decimal_amount(amount_str: &str) -> Result<i64> {
+        let amount_str = amount_str.trim();
+
+        if amount_str.is_empty() {
+            return Err(Error::Parse("Пустая сумма".to_string()));
+        }
+
+        let is_negative = amount_str.starts_with('-');
+        let amount_str = amount_str.trim_start_matches('-');
+
+        let normalized = amount_str.replace(',', ".");
+
+        let (whole_str, frac_str) = if let Some(dot_pos) = normalized.find('.') {
+            (&normalized[..dot_pos], &normalized[dot_pos + 1..])
+        } else {
+            (normalized.as_str(), "")
+        };
+
+        let whole: i64 = if whole_str.is_empty() {
+            0
+        } else {
+            whole_str.parse().map_err(|_| {
+                Error::Parse(format!("Некорректная целая часть суммы: {}", whole_str))
+            })?
+        };
+
+        let frac: i64 = if frac_str.is_empty() {
+            0
+        } else {
+            let frac_padded = match frac_str.len() {
+                0 => "00".to_string(),
+                1 => format!("{}0", frac_str),
+                2 => frac_str.to_string(),
+                _ => frac_str[..2].to_string(),
+            };
+            frac_padded.parse().map_err(|_| {
+                Error::Parse(format!("Некорректная дробная часть суммы: {}", frac_str))
+            })?
+        };
+
+        let amount = whole
+            .checked_mul(100)
+            .and_then(|w| w.checked_add(frac))
+            .ok_or_else(|| Error::Parse("Переполнение при парсинге суммы".to_string()))?;
+
+        Ok(if is_negative { -amount } else { amount })
     }
 
     fn parse_date_element(content: &str) -> Result<Date> {
-        let date_str = Self::extract_element_value(content, "Dt").ok_or_else(|| {
+        // Ищем самый внутренний <Dt> элемент, который содержит только дату
+        let mut date_str = Self::extract_element_value(content, "Dt").ok_or_else(|| {
             Error::MissingField("Не найден элемент Dt".to_string())
         })?;
 
-        let date_str = if date_str.contains("<Dt>") {
-            Self::extract_element_value(&date_str, "Dt").unwrap_or(date_str)
-        } else {
-            date_str
-        };
+        // Если внутри есть вложенный <Dt>, извлекаем его рекурсивно
+        while date_str.contains("<Dt>") {
+            if let Some(inner) = Self::extract_element_value(&date_str, "Dt") {
+                date_str = inner;
+            } else {
+                // Если не можем извлечь вложенный тег, извлекаем дату напрямую
+                // из содержимого после тега
+                if let Some(start) = date_str.find("<Dt>") {
+                    let value_start = start + 4;
+                    if let Some(end) = date_str[value_start..].find('<') {
+                        date_str = date_str[value_start..value_start + end].trim().to_string();
+                    } else {
+                        date_str = date_str[value_start..].trim().to_string();
+                    }
+                }
+                break;
+            }
+        }
 
         Self::parse_iso_date(&date_str)
     }

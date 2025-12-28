@@ -7,22 +7,34 @@ use std::io::Read;
 /// Выписка в формате CSV.
 #[derive(Debug, Clone)]
 pub struct CsvStatement {
+    /// Номер счета (20 цифр).
     pub account_number: String,
+    /// Название владельца счета.
     pub account_name: String,
+    /// Код валюты (RUB по умолчанию).
     pub currency: String,
+    /// Список транзакций.
     pub transactions: Vec<CsvTransaction>,
 }
 
 /// Транзакция в формате CSV.
 #[derive(Debug, Clone)]
 pub struct CsvTransaction {
+    /// Дата операции.
     pub date: Date,
+    /// Счет дебета (откуда списаны средства).
     pub debit_account: Option<String>,
+    /// Счет кредита (куда зачислены средства).
     pub credit_account: Option<String>,
+    /// Сумма дебета в минимальных единицах.
     pub debit_amount: Option<i64>,
+    /// Сумма кредита в минимальных единицах.
     pub credit_amount: Option<i64>,
+    /// Номер документа.
     pub document_number: String,
+    /// Информация о банке контрагента.
     pub bank_info: String,
+    /// Назначение платежа.
     pub description: String,
 }
 
@@ -297,20 +309,66 @@ impl CsvStatement {
 
         let cleaned: String = s
             .chars()
-            .filter(|c| c.is_ascii_digit() || *c == '.' || *c == ',')
+            .filter(|c| c.is_ascii_digit() || *c == '.' || *c == ',' || *c == '-')
             .collect();
 
-        let amount_str = cleaned.replace(',', ".");
+        Self::parse_decimal_amount(&cleaned).ok()
+    }
 
-        amount_str
-            .parse::<f64>()
-            .ok()
-            .map(|a| (a * 100.0).round() as i64)
+    /// Парсит сумму из строки без использования f64.
+    fn parse_decimal_amount(amount_str: &str) -> Result<i64> {
+        let amount_str = amount_str.trim();
+
+        if amount_str.is_empty() {
+            return Err(Error::Parse("Пустая сумма".to_string()));
+        }
+
+        let is_negative = amount_str.starts_with('-');
+        let amount_str = amount_str.trim_start_matches('-');
+
+        let normalized = amount_str.replace(',', ".");
+
+        let (whole_str, frac_str) = if let Some(dot_pos) = normalized.find('.') {
+            (&normalized[..dot_pos], &normalized[dot_pos + 1..])
+        } else {
+            (normalized.as_str(), "")
+        };
+
+        let whole: i64 = if whole_str.is_empty() {
+            0
+        } else {
+            whole_str.parse().map_err(|_| {
+                Error::Parse(format!("Некорректная целая часть суммы: {}", whole_str))
+            })?
+        };
+
+        let frac: i64 = if frac_str.is_empty() {
+            0
+        } else {
+            let frac_padded = match frac_str.len() {
+                0 => "00".to_string(),
+                1 => format!("{}0", frac_str),
+                2 => frac_str.to_string(),
+                _ => frac_str[..2].to_string(),
+            };
+            frac_padded.parse().map_err(|_| {
+                Error::Parse(format!("Некорректная дробная часть суммы: {}", frac_str))
+            })?
+        };
+
+        let amount = whole
+            .checked_mul(100)
+            .and_then(|w| w.checked_add(frac))
+            .ok_or_else(|| Error::Parse("Переполнение при парсинге суммы".to_string()))?;
+
+        Ok(if is_negative { -amount } else { amount })
     }
 }
 
-impl From<CsvStatement> for Statement {
-    fn from(csv: CsvStatement) -> Self {
+impl TryFrom<CsvStatement> for Statement {
+    type Error = Error;
+
+    fn try_from(csv: CsvStatement) -> Result<Self> {
         let account = Account {
             iban: None,
             number: csv.account_number,
@@ -319,7 +377,7 @@ impl From<CsvStatement> for Statement {
             owner: None,
         };
 
-        let mut balance: i64 = 0;
+        let mut balance: i128 = 0;
         let first_date = csv
             .transactions
             .first()
@@ -331,44 +389,50 @@ impl From<CsvStatement> for Statement {
             .map(|t| t.date.clone())
             .unwrap_or_else(|| Date::new(2024, 12, 31));
 
-        let transactions: Vec<Transaction> = csv
-            .transactions
-            .iter()
-            .map(|tx| {
-                let (amount, is_credit) = if let Some(credit) = tx.credit_amount {
-                    balance += credit;
-                    (credit, true)
-                } else if let Some(debit) = tx.debit_amount {
-                    balance -= debit;
-                    (debit, false)
-                } else {
-                    (0, true)
-                };
+        let mut transactions: Vec<Transaction> = Vec::with_capacity(csv.transactions.len());
 
-                let counterparty_account = if is_credit {
-                    tx.debit_account.clone()
-                } else {
-                    tx.credit_account.clone()
-                };
+        for tx in csv.transactions.iter() {
+            let (amount, is_credit) = if let Some(credit) = tx.credit_amount {
+                balance = balance.checked_add(credit as i128).ok_or_else(|| {
+                    Error::Parse("Переполнение при расчёте баланса".to_string())
+                })?;
+                (credit, true)
+            } else if let Some(debit) = tx.debit_amount {
+                balance = balance.checked_sub(debit as i128).ok_or_else(|| {
+                    Error::Parse("Переполнение при расчёте баланса".to_string())
+                })?;
+                (debit, false)
+            } else {
+                (0, true)
+            };
 
-                let counterparty = Some(Counterparty {
-                    name: None,
-                    account: counterparty_account,
-                    bank_code: CsvStatement::extract_bik(&tx.bank_info),
-                    bank_name: Some(tx.bank_info.clone()),
-                });
+            let counterparty_account = if is_credit {
+                tx.debit_account.clone()
+            } else {
+                tx.credit_account.clone()
+            };
 
-                Transaction {
-                    date: tx.date.clone(),
-                    value_date: None,
-                    amount: Amount::new(amount, &csv.currency),
-                    is_credit,
-                    reference: Some(tx.document_number.clone()),
-                    description: tx.description.clone(),
-                    counterparty,
-                }
-            })
-            .collect();
+            let counterparty = Some(Counterparty {
+                name: None,
+                account: counterparty_account,
+                bank_code: CsvStatement::extract_bik(&tx.bank_info),
+                bank_name: Some(tx.bank_info.clone()),
+            });
+
+            transactions.push(Transaction {
+                date: tx.date.clone(),
+                value_date: None,
+                amount: Amount::new(amount, &csv.currency),
+                is_credit,
+                reference: Some(tx.document_number.clone()),
+                description: tx.description.clone(),
+                counterparty,
+            });
+        }
+
+        let final_balance: i64 = balance.try_into().map_err(|_| {
+            Error::Parse("Итоговый баланс превышает допустимый диапазон i64".to_string())
+        })?;
 
         let opening_balance = Balance {
             amount: Amount::new(0, &csv.currency),
@@ -377,19 +441,19 @@ impl From<CsvStatement> for Statement {
         };
 
         let closing_balance = Balance {
-            amount: Amount::new(balance, &csv.currency),
+            amount: Amount::new(final_balance, &csv.currency),
             date: last_date,
-            is_credit: balance >= 0,
+            is_credit: final_balance >= 0,
         };
 
-        Statement {
+        Ok(Statement {
             account,
             opening_balance,
             closing_balance,
             transactions,
             statement_number: None,
             reference: None,
-        }
+        })
     }
 }
 

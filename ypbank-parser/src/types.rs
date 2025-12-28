@@ -3,8 +3,11 @@
 /// Дата в формате год-месяц-день.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Date {
+    /// Год (например, 2024).
     pub year: u16,
+    /// Месяц (1-12).
     pub month: u8,
+    /// День месяца (1-31).
     pub day: u8,
 }
 

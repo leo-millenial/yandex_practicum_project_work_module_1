@@ -20,6 +20,8 @@
 //! let statement: Statement = mt940.into();
 //! ```
 
+#![warn(missing_docs)]
+
 pub mod error;
 pub mod types;
 pub mod mt940;
@@ -64,25 +66,36 @@ impl Format {
     }
 }
 
-/// Парсит выписку из строки в универсальный формат Statement.
-pub fn parse_statement(content: &str, format: Format) -> Result<Statement> {
+/// Парсит все выписки из строки в универсальный формат Statement.
+///
+/// Для MT940 файлов, которые могут содержать несколько выписок,
+/// возвращает все найденные выписки.
+pub fn parse_statements(content: &str, format: Format) -> Result<Vec<Statement>> {
     match format {
         Format::Mt940 => {
             let statements = Mt940Statement::parse(content)?;
-            let mt940 = statements
-                .into_iter()
-                .next()
-                .ok_or(Error::InvalidFormat("Пустой файл MT940".into()))?;
-            Ok(mt940.into())
+            Ok(statements.into_iter().map(|mt940| mt940.into()).collect())
         }
         Format::Camt053 => {
             let camt = Camt053Statement::parse(content)?;
-            Ok(camt.into())
+            Ok(vec![camt.into()])
         }
         Format::Csv => {
             let csv = CsvStatement::parse(content)?;
-            Ok(csv.into())
+            Ok(vec![csv.try_into()?])
         }
     }
+}
+
+/// Парсит первую выписку из строки в универсальный формат Statement.
+///
+/// Для MT940 файлов возвращает только первую выписку.
+/// Если нужны все выписки, используйте [`parse_statements`].
+pub fn parse_statement(content: &str, format: Format) -> Result<Statement> {
+    let statements = parse_statements(content, format)?;
+    statements
+        .into_iter()
+        .next()
+        .ok_or(Error::InvalidFormat("Пустой файл".into()))
 }
 
